@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hydrosensordesign"
+version = "0.1.0"
+description = "QR-based hydrological sensor network design utilities"
+authors = [
+    { name = "John Lee", email = "bakkao4109@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+
+# Your library's dependencies
+dependencies = [
+    "numpy",
+    "scipy",
+    "geopandas",
+    "shapely",
+]
+
+# Optional links for PyPI
+[project.urls]
+Homepage = "https://github.com/yourusername/hydrosensordesign"
+
+[tool.setuptools.packages.find]
+include = ["hydrosensordesign"]
+exclude = ["data*", "outputs*"]

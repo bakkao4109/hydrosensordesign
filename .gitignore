@@ -1,0 +1,34 @@
+# Python build artifacts
+*.egg-info/
+dist/
+build/
+
+# Byte-compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution files
+*.whl
+
+# Virtual environments
+venv/
+env/
+
+# VS Code settings
+.vscode/
+
+# random stuf
+data/
+*.csv
+*.cpg
+*.dbf
+*.prj
+*.sbn
+*.shx
+*.shp
+*.shp.xml
+outputs/
+*.pkl
+*.gpkg
