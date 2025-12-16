@@ -5,63 +5,7 @@ import geopandas as gpd
 from shapely.geometry import Point
 
 # ----------------------------------------------------------
-# XX. PARSE "(lat, lon)" STRING LABELS
-# ----------------------------------------------------------
-
-def extract_coordinates(coord_labels):
-    """
-    Parse coordinate labels like "(23.45, 90.11)" into floats.
-
-    Parameters
-    ----------
-    coord_labels : list of strings
-
-    Returns
-    -------
-    lat : ndarray
-    lon : ndarray
-    """
-    lat = []
-    lon = []
-    for s in coord_labels:
-        s = s.strip().replace("(", "").replace(")", "")
-        a, b = s.split(",")
-        lat.append(float(a))
-        lon.append(float(b))
-    return np.array(lat), np.array(lon)
-
-# ----------------------------------------------------------
-# XX. ALIGN POINTS TO GRID
-# ----------------------------------------------------------
-
-def align_points_to_grid(points_gdf, lat_vals, lon_vals):
-    """
-    Align point locations to nearest (lat, lon) grid cells.
-
-    Parameters
-    ----------
-    points_gdf : GeoDataFrame
-        With columns: geometry (Point), gauge_lat, gauge_lon.
-    lat_vals : array-like
-    lon_vals : array-like
-
-    Returns
-    -------
-    indices : ndarray of ints
-        Column indices in the stacked X matrix.
-    """
-    lat_pts = points_gdf.geometry.y.values
-    lon_pts = points_gdf.geometry.x.values
-
-    lat_idx = np.abs(lat_vals[:, None] - lat_pts).argmin(axis=0)
-    lon_idx = np.abs(lon_vals[:, None] - lon_pts).argmin(axis=0)
-
-    # Convert the 2D grid to a flat column index
-    grid_idx = lat_idx * len(lon_vals) + lon_idx
-    return grid_idx
-
-# ----------------------------------------------------------
-# XX. BASIN ASSIGNMENT
+# XX. Coordinates to Point Geometry
 # ----------------------------------------------------------
 
 def coords_to_points(coords, indices, target_crs):
@@ -107,7 +51,7 @@ def coords_to_points(coords, indices, target_crs):
 # XX. BASIN ASSIGNMENT
 # ----------------------------------------------------------
 
-def assign_basins(points_gdf, boundaries, basin_field):
+def assign_basins(points_gdf, boundaries, basin_field,proj_crs=None):
     """
     Assign basin values to points using spatial join + nearest-basin fallback.
     Includes CRS validation and safe reprojection.
@@ -126,12 +70,18 @@ def assign_basins(points_gdf, boundaries, basin_field):
         warnings.warn("boundaries and points_gdf have mismatching CRS. points_gdf will be reprojected to the CRS from boundaries")
         points_gdf = points_gdf.to_crs(boundaries.crs)
 
+    #
+    # Set Projection Coordinate
+    #
+    if proj_crs is None:
+        proj_crs = "EPSG:4326"
+
     # -----------------------------
-    # 2. Spatial join
+    # 2. Spatial join 
     # -----------------------------
     joined = gpd.sjoin(
         points_gdf,
-        boundaries[[basin_field, "geometry"]],
+        boundaries[[basin_field, "geometry"]], #### need to check code bc point doesnt have "geometry"
         how="left",
         predicate="within",
     )
@@ -144,9 +94,6 @@ def assign_basins(points_gdf, boundaries, basin_field):
 
     if n_missing > 0:
         print(f"Found {n_missing} gauges not inside any basin. Assigning nearest basin...")
-
-        # Reproject to projected CRS for Euclidean distances
-        proj_crs = "EPSG:4326"
 
         pts_proj = joined.loc[missing_mask].to_crs(proj_crs)
         basins_proj = boundaries.to_crs(proj_crs)
@@ -167,7 +114,37 @@ def assign_basins(points_gdf, boundaries, basin_field):
     return joined
 
 # ----------------------------------------------------------
-# 3. BASIN QUOTA COMPUTATION
+# XX. ALIGN POINTS TO GRID
+# ----------------------------------------------------------
+
+def align_points_to_grid(points_gdf, lat_vals, lon_vals):
+    """
+    Align point locations to nearest (lat, lon) grid cells.
+
+    Parameters
+    ----------
+    points_gdf : GeoDataFrame
+        With columns: geometry (Point), gauge_lat, gauge_lon.
+    lat_vals : array-like
+    lon_vals : array-like
+
+    Returns
+    -------
+    indices : ndarray of ints
+        Column indices in the stacked X matrix.
+    """
+    lat_pts = points_gdf.geometry.y.values
+    lon_pts = points_gdf.geometry.x.values
+
+    lat_idx = np.abs(lat_vals[:, None] - lat_pts).argmin(axis=0)
+    lon_idx = np.abs(lon_vals[:, None] - lon_pts).argmin(axis=0)
+
+    # Convert the 2D grid to a flat column index
+    grid_idx = lat_idx * len(lon_vals) + lon_idx
+    return grid_idx
+
+# ----------------------------------------------------------
+# XX. BASIN QUOTA COMPUTATION
 # ----------------------------------------------------------
 
 def compute_basin_quotas(basin_assignments, total_sensors):
@@ -213,3 +190,29 @@ def reconstruction_evaluation(X_train, X_test, sensor_location, n_sensors):
     relative_error = np.linalg.norm(X_test_reconstructed - X_test,'fro') / np.linalg.norm(X_test,'fro')
 
     return X_test_selected, X_test_reconstructed, selected_sensors, non_selected_sensors, rmse, relative_error
+
+# ----------------------------------------------------------
+# XX. PARSE "(lat, lon)" STRING LABELS
+# ----------------------------------------------------------
+
+def extract_coordinates(coord_labels):
+    """
+    Parse coordinate labels like "(23.45, 90.11)" into floats.
+
+    Parameters
+    ----------
+    coord_labels : list of strings
+
+    Returns
+    -------
+    lat : ndarray
+    lon : ndarray
+    """
+    lat = []
+    lon = []
+    for s in coord_labels:
+        s = s.strip().replace("(", "").replace(")", "")
+        a, b = s.split(",")
+        lat.append(float(a))
+        lon.append(float(b))
+    return np.array(lat), np.array(lon)

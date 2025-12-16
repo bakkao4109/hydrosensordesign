@@ -12,7 +12,7 @@ from hydrosensordesign.utils import (
 
 def select_sensors(
     X,
-    coords,
+    coords=None,
     boundaries=None,
     basin_field=None,
     per_basin_quota=None,
@@ -41,15 +41,15 @@ def select_sensors(
             raise ValueError("Must provide number of sensors, r")
         return global_qr_selection(
             X=X,
-            coords=coords,
             r=r,
+            coords=coords,
             weights=weights,
             existing_sensors=existing_sensors,
         )
     # --------------------------------------------------
     # If boundaries are provided, basin_field is required
     # --------------------------------------------------
-    if boundaries is not None and basin_field is None:
+    if (boundaries is None) != (basin_field is None):
         raise ValueError(
             "Specify basin_field when providing boundaries. "
             "Example: basin_field='HUC6' or basin_field='RHI_NM'."
@@ -62,7 +62,7 @@ def select_sensors(
     points_with_basin = assign_basins(points, boundaries, basin_field)
 
     # --------------------------------------------------
-    # (3) Determine quotas
+    # (3) Determine quota (minimum number of sensor per basin)
     # --------------------------------------------------
     quotas = compute_basin_quotas(
         points_with_basin, basin_field, r, per_basin_quota
@@ -71,7 +71,7 @@ def select_sensors(
     # --------------------------------------------------
     # (4) Run per-basin QR
     # --------------------------------------------------
-    selected_indices = per_basin_qr_selection(
+    selected_indices, selected_sensor_indices = per_basin_qr_selection(
         X,
         points_with_basin,
         basin_field,

@@ -19,6 +19,10 @@ env/
 # VS Code settings
 .vscode/
 
+# Python scripts
+# glofas_processing_utils.py
+# sensor_network_utils.py
+
 # random stuf
 data/
 *.csv
@@ -29,6 +33,8 @@ data/
 *.shx
 *.shp
 *.shp.xml
+*.grib
+*.idx
 outputs/
 *.pkl
 *.gpkg

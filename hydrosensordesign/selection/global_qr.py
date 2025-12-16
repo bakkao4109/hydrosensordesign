@@ -1,9 +1,22 @@
 import numpy as np
 from scipy.linalg import qr
 
-#def global_qr_selection(X, r, weights=None, existing_sensors=None):
-def global_qr_selection(X, coords, r, weights=None, existing_sensors=None):
-    """Run weighted QR decomposition for the whole domain."""
+def global_qr_selection(X, r, coords=None, weights=None, existing_sensors=None):
+    """
+    Run weighted QR decomposition for the whole domain.
+
+    Parameters
+    ----------
+    X : np.ndarray or list, data matrix
+    r : int, the number of sensors to select  
+    coords : np.ndarray or list, indices of all streams ex) COMID (default: None)
+    weights : np.ndarray or list, optional, weights for each column (default: None)
+    existing_sensors : list, optional, indices of existing sensors (default: None)
+
+    Returns
+    -------
+    dictionary of chosen indices, coords 
+    """
 
     n_sites = X.shape[1]
 
@@ -36,7 +49,7 @@ def global_qr_selection(X, coords, r, weights=None, existing_sensors=None):
 
     return {
         "indices": chosen,
-        "coords": [coords[i] for i in chosen],
+        "coords": None if coords is None else [coords[i] for i in chosen],
         "basin_assign": None,
         "method": "global QR",
     }
