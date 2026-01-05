@@ -1,3 +1,3 @@
-from .selection.core import select_sensors
+from hydrosensordesign.selection import *
 
-__all__ = ["select_sensors"]
+__all__ = ["select_sensors","recon"]

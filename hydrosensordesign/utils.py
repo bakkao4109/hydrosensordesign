@@ -3,115 +3,48 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
+from pyproj import CRS
+
+'''
+notes:
+# for geographic coord sys (lat,lon), longitude wrapping
+# - create separate functions for geo and proj crs 
+# for projected coord sys (x,y), filter out points out-of-bounds 
+'''
 
 # ----------------------------------------------------------
 # XX. Coordinates to Point Geometry
 # ----------------------------------------------------------
 
-def coords_to_points(coords, indices, target_crs):
+def coords_to_points(coords, site_id, idx, bnd_crs):
     """
-    Convert coordinate strings '(lat, lon)' into a GeoDataFrame and assign CRS.
-    Handles longitude wrap-around and CRS validation.
+    Convert coordinate strings '(lat, lon)' into a GeoDataFrame
     """
-
-    if target_crs is None:
-        raise ValueError("Boundaries must have a valid CRS.")
-
     lat_list, lon_list = [], []
 
     for s in coords:
         stripped = s.strip("()")
         lat, lon = map(float, stripped.split(","))
 
-        # Fix 0–360 longitudes to -180 to 180
+        # Fix 0–360 longitudes to -180 to 180 for WGS84
         if lon > 180:
             lon = ((lon + 180) % 360) - 180
-
         lat_list.append(lat)
         lon_list.append(lon)
 
-    points = gpd.GeoDataFrame(
+    points_gdf = gpd.GeoDataFrame(
         {
-            "id": indices,
+            "id": site_id,
+            "idx": idx,
             "coord": coords,
             "lat": lat_list,
             "lon": lon_list,
         },
         geometry=gpd.points_from_xy(lon_list, lat_list),
-        crs="EPSG:4326"
+        crs=bnd_crs
     )
 
-    # Reproject points to boundary CRS if needed
-    if points.crs != target_crs:
-        points = points.to_crs(target_crs)
-
-    return points
-
-# ----------------------------------------------------------
-# XX. BASIN ASSIGNMENT
-# ----------------------------------------------------------
-
-def assign_basins(points_gdf, boundaries, basin_field,proj_crs=None):
-    """
-    Assign basin values to points using spatial join + nearest-basin fallback.
-    Includes CRS validation and safe reprojection.
-    """
-    # -----------------------------
-    # 1. CRS validation
-    # -----------------------------
-    if boundaries.crs is None:
-        raise ValueError("boundaries GeoDataFrame has no CRS. Please set one.")
-
-    if points_gdf.crs is None:
-        raise ValueError("points_gdf has no CRS. Please set one.")
-
-    # Reproject points if needed
-    if points_gdf.crs != boundaries.crs:
-        warnings.warn("boundaries and points_gdf have mismatching CRS. points_gdf will be reprojected to the CRS from boundaries")
-        points_gdf = points_gdf.to_crs(boundaries.crs)
-
-    #
-    # Set Projection Coordinate
-    #
-    if proj_crs is None:
-        proj_crs = "EPSG:4326"
-
-    # -----------------------------
-    # 2. Spatial join 
-    # -----------------------------
-    joined = gpd.sjoin(
-        points_gdf,
-        boundaries[[basin_field, "geometry"]], #### need to check code bc point doesnt have "geometry"
-        how="left",
-        predicate="within",
-    )
-
-    # -----------------------------
-    # 3. Nearest-basin assignment
-    # -----------------------------
-    missing_mask = joined[basin_field].isna()
-    n_missing = missing_mask.sum()
-
-    if n_missing > 0:
-        print(f"Found {n_missing} gauges not inside any basin. Assigning nearest basin...")
-
-        pts_proj = joined.loc[missing_mask].to_crs(proj_crs)
-        basins_proj = boundaries.to_crs(proj_crs)
-
-        for idx in pts_proj.index:
-            geom = pts_proj.loc[idx].geometry
-            dists = basins_proj.geometry.distance(geom)
-
-            nearest_idx = dists.idxmin()
-
-            # Assign basin attributes
-            joined.at[idx, basin_field] = boundaries.at[nearest_idx, basin_field]
-
-    # Cleanup
-    if "index_right" in joined:
-        joined = joined.drop(columns=["index_right"])
-
-    return joined
+    return points_gdf
 
 # ----------------------------------------------------------
 # XX. ALIGN POINTS TO GRID
@@ -144,52 +77,85 @@ def align_points_to_grid(points_gdf, lat_vals, lon_vals):
     return grid_idx
 
 # ----------------------------------------------------------
-# XX. BASIN QUOTA COMPUTATION
+# XX. BASIN ASSIGNMENT
 # ----------------------------------------------------------
 
-def compute_basin_quotas(basin_assignments, total_sensors):
+def assign_points_to_basins(points_gdf: gpd.GeoDataFrame, 
+                            flow_id_field,
+                            boundaries, 
+                            basin_field,
+                            coord_crs=None):
     """
-    Compute proportional per-basin sensor quotas.
-
-    Parameters
-    ----------
-    basin_assignments : array-like of basin names, length = n_sites
-    total_sensors : int
-
-    Returns
-    -------
-    quota : dict {basin_name : k}
+    Assign basin values to points using spatial join + nearest-basin fallback.
+    Includes CRS validation and safe reprojection.
     """
-    basins, counts = np.unique(basin_assignments, return_counts=True)
-    proportions = counts / counts.sum()
+    # -----------------------------
+    # 1. CRS validation
+    # -----------------------------
+    # Reproject points if needed
+    if points_gdf.crs != boundaries.crs:
+        warnings.warn("boundaries and points_gdf have mismatching CRS. points_gdf will be reprojected to the CRS from boundaries")
+        points_gdf = points_gdf.to_crs(boundaries.crs)
 
-    raw = proportions * total_sensors
-    quota = {b: int(max(1, np.round(k))) for b, k in zip(basins, raw)}
+    # Set Projection Coordinate
+    if coord_crs is None:
+        warnings.warn('must provide crs for lat/lon')
 
-    return quota
+    # -----------------------------
+    # 2. Spatial join 
+    # -----------------------------
+    points_with_basin = gpd.sjoin(
+        points_gdf,
+        boundaries[[basin_field, "geometry"]],
+        how="left",
+        predicate="within",
+    )
+
+    # -----------------------------
+    # 3. Nearest-basin assignment
+    # -----------------------------
+    missing_mask = points_with_basin[basin_field].isna()
+    n_missing = missing_mask.sum()
+
+    if n_missing > 0:
+        print(f"Found {n_missing} gauges not inside any basin. Assigning nearest basin...")
+
+        pts_proj = points_with_basin.loc[missing_mask].to_crs(coord_crs)
+        basins_proj = boundaries.to_crs(coord_crs)
+
+        for idx in pts_proj.index:
+            geom = pts_proj.loc[idx].geometry
+            dists = basins_proj.geometry.distance(geom)
+
+            nearest_idx = dists.idxmin()
+
+            # Assign basin attributes
+            points_with_basin.at[idx, basin_field] = boundaries.at[nearest_idx, basin_field]
+    # Cleanup
+    if "index_right" in points_with_basin:
+        points_with_basin = points_with_basin.drop(columns=["index_right"])
+    points_with_basin[flow_id_field] = points_with_basin[flow_id_field].astype(int)
+    
+    return points_with_basin
 
 # ----------------------------------------------------------
-# XX. Reconstruct 
+# XX. Quota  
 # ----------------------------------------------------------
 
-def reconstruction_evaluation(X_train, X_test, sensor_location, n_sensors):
-    """Evaluate reconstruction performance for given sensor locations"""
-    N_sensors = X_test.shape[1]
-    all_sensors = np.arange(N_sensors)
-    selected_sensors = sensor_location[:n_sensors]
-    non_selected_sensors = np.setdiff1d(all_sensors, selected_sensors)
+def quotas_from_existing(existing_sensors, boundaries, basin_field):
+    """
+    Quotas = how many existing sensors fall in each basin.
+    points_with_basin must contain columns: ["id", basin_field]
+    """
+    existing_pts = gpd.sjoin(existing_sensors,
+                            boundaries[[basin_field,"geometry"]],
+                            how='left',
+                            predicate='within')
+    if "index_right" in existing_pts:
+        existing_pts = existing_pts.drop(columns=["index_right"])
+    quotas = existing_pts.groupby(basin_field).size().to_dict()
 
-    X_train_selected = X_train[:, selected_sensors]  
-    X_test_selected = X_test[:, selected_sensors]
-
-    solution = np.linalg.lstsq(X_train_selected.T, X_test_selected.T, rcond=None)[0]
-    X_test_reconstructed = solution.T @ X_train
-    X_test_reconstructed = np.maximum(X_test_reconstructed, 1e-10)
-
-    rmse = np.sqrt(np.mean((X_test - X_test_reconstructed) ** 2, axis=0))
-    relative_error = np.linalg.norm(X_test_reconstructed - X_test,'fro') / np.linalg.norm(X_test,'fro')
-
-    return X_test_selected, X_test_reconstructed, selected_sensors, non_selected_sensors, rmse, relative_error
+    return quotas
 
 # ----------------------------------------------------------
 # XX. PARSE "(lat, lon)" STRING LABELS
